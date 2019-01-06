@@ -67,9 +67,8 @@ def generateGcode(filename):
                     updown = True
 
             while xPosition < leftPoint[0] or xPosition < rightPoint[0]:
+                xPosition += 0.5
                 if leftPoint[0] < rightPoint[0]:
-                    xPosition += 0.5
-
                     xPercentageBack = (xPosition-leftPoint[0])/(rightPoint[0]-leftPoint[0])
                     yPositionBack = (rightPoint[1]-leftPoint[1])*xPercentageBack+leftPoint[1]
 
@@ -84,12 +83,31 @@ def generateGcode(filename):
                         out.write("G1 X%f Y%f Z%f \n"%(xPosition,yPositionRight,startPoint[2]))
                         out.write("G1 X%f Y%f Z%f \n"%(xPosition,yPositionBack,startPoint[2]))
                         updown = True
+                else:
+                    xPercentageBack = (xPosition-rightPoint[0])/(leftPoint[0]-rightPoint[0])
+                    yPositionBack = (leftPoint[1]-rightPoint[1])*xPercentageBack+rightPoint[1]
+
+                    xPercentageRight = (xPosition-startPoint[0])/(leftPoint[0]-startPoint[0])
+                    yPositionRight = (leftPoint[1]-startPoint[1])*xPercentageRight+startPoint[1]
+
+                    if updown:
+                        out.write("G1 X%f Y%f Z%f \n"%(xPosition,yPositionBack,startPoint[2]))
+                        out.write("G1 X%f Y%f Z%f \n"%(xPosition,yPositionRight,startPoint[2]))
+                        updown = False
+                    else:
+                        out.write("G1 X%f Y%f Z%f \n"%(xPosition,yPositionRight,startPoint[2]))
+                        out.write("G1 X%f Y%f Z%f \n"%(xPosition,yPositionBack,startPoint[2]))
+                        updown = True
+                    """
+                    """
 
         '''
         slice by Z layers
         '''
         zHeight = 0
         while 1:
+            print(zHeight)
+
             done = True
             counter = 0
             maxLength = your_mesh.points.size/9
@@ -147,7 +165,6 @@ def generateGcode(filename):
 
                         out.write("G1 X%f Y%f Z%f\n" % (xPositionStart,yPositionStart,zHeight))
                         out.write("G1 X%f Y%f Z%f\n\n" % (xPositionEnd,yPositionEnd,zHeight))
-                            
 
                 """
                 out.write("\n")
