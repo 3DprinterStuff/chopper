@@ -12,8 +12,8 @@ def generateGcode(filename):
         lineMap = {}
 
         def walkTriangleFull(triangle):
-            print("")
-            print("# "+str(triangle))
+            out.write("\n")
+            out.write("# "+str(triangle)+"\n")
             startPoint = triangle[0]
             leftPoint = triangle[1]
             rightPoint = triangle[2]
@@ -32,13 +32,13 @@ def generateGcode(filename):
                 rightPoint = leftPoint
                 leftPoint = tmp
             
-            print("# "+str(startPoint)+" -> "+str(leftPoint))
-            print("# "+str(startPoint)+" -> "+str(rightPoint))
+            out.write("# "+str(startPoint)+" -> "+str(leftPoint)+"\n")
+            out.write("# "+str(startPoint)+" -> "+str(rightPoint)+"\n")
 
-            print("G1 X%d Y%d Z%d "%(startPoint[0],startPoint[1],startPoint[2]))
-            print("G1 X%d Y%d Z%d "%(leftPoint[0],leftPoint[1],leftPoint[2]))
-            print("G1 X%d Y%d Z%d "%(rightPoint[0],rightPoint[1],rightPoint[2]))
-            print("G1 X%d Y%d Z%d "%(startPoint[0],startPoint[1],startPoint[2]))
+            out.write("G1 X%d Y%d Z%d \n"%(startPoint[0],startPoint[1],startPoint[2]))
+            out.write("G1 X%d Y%d Z%d \n"%(leftPoint[0],leftPoint[1],leftPoint[2]))
+            out.write("G1 X%d Y%d Z%d \n"%(rightPoint[0],rightPoint[1],rightPoint[2]))
+            out.write("G1 X%d Y%d Z%d \n"%(startPoint[0],startPoint[1],startPoint[2]))
 
             leftLine = (startPoint,leftPoint)
             rightLine = (startPoint,rightPoint)
@@ -58,12 +58,12 @@ def generateGcode(filename):
                 yPositionRight = (rightPoint[1]-startPoint[1])*xPercentageRight+startPoint[1]
 
                 if updown:
-                    print("G1 X%f Y%f Z%f "%(xPosition,yPositionRight,startPoint[2]))
-                    print("G1 X%f Y%f Z%f "%(xPosition,yPositionLeft,startPoint[2]))
+                    out.write("G1 X%f Y%f Z%f \n"%(xPosition,yPositionRight,startPoint[2]))
+                    out.write("G1 X%f Y%f Z%f \n"%(xPosition,yPositionLeft,startPoint[2]))
                     updown = False
                 else:
-                    print("G1 X%f Y%f Z%f "%(xPosition,yPositionLeft,startPoint[2]))
-                    print("G1 X%f Y%f Z%f "%(xPosition,yPositionRight,startPoint[2]))
+                    out.write("G1 X%f Y%f Z%f \n"%(xPosition,yPositionLeft,startPoint[2]))
+                    out.write("G1 X%f Y%f Z%f \n"%(xPosition,yPositionRight,startPoint[2]))
                     updown = True
 
             while xPosition < leftPoint[0] or xPosition < rightPoint[0]:
@@ -77,12 +77,12 @@ def generateGcode(filename):
                     yPositionRight = (rightPoint[1]-startPoint[1])*xPercentageRight+startPoint[1]
 
                     if updown:
-                        print("G1 X%f Y%f Z%f "%(xPosition,yPositionBack,startPoint[2]))
-                        print("G1 X%f Y%f Z%f "%(xPosition,yPositionRight,startPoint[2]))
+                        out.write("G1 X%f Y%f Z%f \n"%(xPosition,yPositionBack,startPoint[2]))
+                        out.write("G1 X%f Y%f Z%f \n"%(xPosition,yPositionRight,startPoint[2]))
                         updown = False
                     else:
-                        print("G1 X%f Y%f Z%f "%(xPosition,yPositionRight,startPoint[2]))
-                        print("G1 X%f Y%f Z%f "%(xPosition,yPositionBack,startPoint[2]))
+                        out.write("G1 X%f Y%f Z%f \n"%(xPosition,yPositionRight,startPoint[2]))
+                        out.write("G1 X%f Y%f Z%f \n"%(xPosition,yPositionBack,startPoint[2]))
                         updown = True
 
         '''
@@ -125,8 +125,8 @@ def generateGcode(filename):
                         xPositionEnd = lowerPoints[1][0]+(top[0]-lowerPoints[1][0])*zPercentageEnd
                         yPositionEnd = lowerPoints[1][1]+(top[1]-lowerPoints[1][1])*zPercentageEnd
 
-                        print("G1 X%f Y%f Z%f" % (xPositionStart,yPositionStart,zHeight))
-                        print("G1 X%f Y%f Z%f\n" % (xPositionEnd,yPositionEnd,zHeight))
+                        out.write("G1 X%f Y%f Z%f\n" % (xPositionStart,yPositionStart,zHeight))
+                        out.write("G1 X%f Y%f Z%f\n\n" % (xPositionEnd,yPositionEnd,zHeight))
                             
                     else:
                         lower = None
@@ -145,8 +145,8 @@ def generateGcode(filename):
                         xPositionEnd = higherPoints[1][0]+(lower[0]-higherPoints[1][0])*zPercentageEnd
                         yPositionEnd = higherPoints[1][1]+(lower[1]-higherPoints[1][1])*zPercentageEnd
 
-                        print("G1 X%f Y%f Z%f" % (xPositionStart,yPositionStart,zHeight))
-                        print("G1 X%f Y%f Z%f\n" % (xPositionEnd,yPositionEnd,zHeight))
+                        out.write("G1 X%f Y%f Z%f\n" % (xPositionStart,yPositionStart,zHeight))
+                        out.write("G1 X%f Y%f Z%f\n\n" % (xPositionEnd,yPositionEnd,zHeight))
                             
 
                 """
@@ -161,8 +161,4 @@ def generateGcode(filename):
             if done:
                 break
 
-        out.close()
-
-        out = open("cube.gcode","r")
-        print(out.read())
         out.close()
