@@ -111,6 +111,7 @@ def generateGcode(filename):
             done = True
             counter = 0
             maxLength = your_mesh.points.size/9
+
             while (counter < maxLength):
                 points = [tuple(your_mesh.points[counter][0:3]),tuple(your_mesh.points[counter][3:6]),tuple(your_mesh.points[counter][6:9])]
 
