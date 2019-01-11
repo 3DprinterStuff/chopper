@@ -1,5 +1,12 @@
 from zipfile import ZipFile
 import xml.dom.minidom
+import math
+
+def extrudeLine(point1,point2,extrusionFactor=0.07):
+    distance = math.sqrt((point1[0]-point2[0])**2+(point1[1]-point2[1])**2+(point1[2]-point2[2])**2)
+    print("G1 X%f Y%f Z%f E0"%(point1[0],point1[1],point1[2]))
+    print("G1 X%f Y%f Z%f E%f"%(point2[0],point2[1],point2[2],distance*extrusionFactor))
+    
 
 def getRawData(filename):
     input_zip=ZipFile(filename)
@@ -219,8 +226,10 @@ def printPoly(poly,stepSize = 0.2):
     print("#",outlinePath)
     print("# printing outline")
 
-    for point in outlinePath:
-        print("G1 X%f Y%f Z%f"%(point[0],point[1],point[2]))
+    lastPoint = outlinePath[0]
+    for point in outlinePath[1:]:
+        extrudeLine(lastPoint,point)
+        lastPoint = point
     
     normal = calculateNormal((outlinePath[startIndex],outlinePath[startIndex+1],outlinePath[startIndex-1]))
     if normal[2] > 0:
@@ -264,12 +273,10 @@ def printPoly(poly,stepSize = 0.2):
            continue
 
         if upDown:
-            print("G1 X%f Y%f Z%f"%(xPositionTop,yPositionTop,zPositionTop))
-            print("G1 X%f Y%f Z%f"%(xPositionBottom,yPositionBottom,zPositionBottom))
+            extrudeLine((xPositionTop,yPositionTop,zPositionTop),(xPositionBottom,yPositionBottom,zPositionBottom))
             upDown = False
         else:
-            print("G1 X%f Y%f Z%f"%(xPositionBottom,yPositionBottom,zPositionBottom))
-            print("G1 X%f Y%f Z%f"%(xPositionTop,yPositionTop,zPositionTop))
+            extrudeLine((xPositionBottom,yPositionBottom,zPositionBottom),(xPositionTop,yPositionTop,zPositionTop))
             upDown = True
 
 #objects = getRawData("convexPolyPolstered.amf")
