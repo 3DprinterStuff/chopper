@@ -23,7 +23,7 @@ def extractVertices(objects):
         vertices.append((x,y,z))
     return vertices
 
-def etractTriangles(objects):
+def extractTriangles(objects):
     triangles = []
     for child in objects[0].getElementsByTagName("volume")[0].childNodes:
         if (child.nodeType in (child.TEXT_NODE, child.CDATA_SECTION_NODE)):
@@ -51,12 +51,14 @@ def buildVertexMap(triangles):
         verticesToTriangles[triangle[2]].append(triangle)
     return verticesToTriangles
 
-def getBottomConvexPolys(convexPolys):
+def getBottomConvexPolys(convexPolys,zCutOff=0):
     bottomConvexPolys = []
     for convexPoly in convexPolys:
         bottomVertices = []
         for vertex in convexPoly:
-            if vertices[vertex][2] > 0.2:
+            if vertices[vertex][2] > 0.2+zCutOff:
+                continue
+            if vertices[vertex][2] < zCutOff:
                 continue
             bottomVertices.append(vertex)
     
@@ -196,7 +198,7 @@ def getUpperLeftVertex(poly):
     
     return startIndex
 
-def calculateOutlinePath(poly,startIndex):
+def calculateOutlinePath(poly,startIndex = 0):
     outlinePath = []
     currentIndex = startIndex
     polyLen = len(poly)
@@ -210,7 +212,7 @@ def calculateOutlinePath(poly,startIndex):
     
     return outlinePath
 
-def printPoly(poly):
+def printPoly(poly,stepSize = 0.2):
     print("#",poly)
     startIndex = getUpperLeftVertex(poly)
     outlinePath = calculateOutlinePath(poly,startIndex)
@@ -219,22 +221,27 @@ def printPoly(poly):
 
     for point in outlinePath:
         print("G1 X%f Y%f Z%f"%(point[0],point[1],point[2]))
+    
+    normal = calculateNormal((outlinePath[startIndex],outlinePath[startIndex+1],outlinePath[startIndex-1]))
+    if normal[2] > 0:
+        outlinePath = list(reversed(outlinePath))
+        startIndex = len(outlinePath)-startIndex
 
     print("# printing fill")
     toFill = outlinePath[:]
     xPosition = toFill[0][0]
     upDown = True
     while len(toFill) > 2:
-        xPosition += 0.2
+        xPosition += stepSize
 
         # remove obsolete vertexes
-        while toFill[1][0] < xPosition:
+        while toFill[1][0] < xPosition+(stepSize*0.5):
             toFill.pop(0)
             if len(toFill) < 2:
                 break
         if len(toFill) < 2:
             break
-        while toFill[-2][0] < xPosition:
+        while toFill[-2][0] < xPosition+(stepSize*0.5):
             toFill.pop()
             if len(toFill) < 2:
                 break
@@ -253,7 +260,7 @@ def printPoly(poly):
         yPositionBottom = (lowerLine[1][1]-lowerLine[0][1])*percentage+lowerLine[0][1]+0.2
         zPositionBottom = (lowerLine[1][2]-lowerLine[0][2])*percentage+lowerLine[0][2]
 
-        if yPositionTop-yPositionBottom < 0.2:
+        if yPositionTop-yPositionBottom < 0.2 and yPositionTop-yPositionBottom > -0.2:
            continue
 
         if upDown:
@@ -272,7 +279,7 @@ vertices = extractVertices(objects)
 #print("vertices")
 #print(vertices)
 
-triangles = etractTriangles(objects)
+triangles = extractTriangles(objects)
 #print("triangles")
 #print(triangles)
 
@@ -288,14 +295,121 @@ polys = reducePolys(triangles)
 #print("polys")
 #print(polys)
 
-bottomConvexPolys = getBottomConvexPolys(polys)
-#print("bottomConvexPolys")
-#print(bottomConvexPolys)
+zCutoff = 0
+while polys:
+    bottomConvexPolys = getBottomConvexPolys(polys,zCutoff)
+    #print("bottomConvexPolys")
+    #print(bottomConvexPolys)
 
-for poly in bottomConvexPolys:
-    printPoly(poly)
+    for poly in bottomConvexPolys:
+        printPoly(poly)
+        """
+        if zCutoff < 1 or zCutoff > 11:
+            printPoly(poly)
+        else:
+            printPoly(poly,stepSize=1)
+        """
+
+        polys.remove(poly) 
+
+    intersectingPolys = []
+    for poly in polys:
+        hasLower = False
+        for vertex in poly:
+            if vertices[vertex][2] <= zCutoff:
+                hasLower = True
+            
+        if hasLower:
+            intersectingPolys.append(poly)
+
+    movedVertices = {}
+    for poly in intersectingPolys:
+        state = "findLower"
+        counter = 0
+        for vertex in poly:
+            if state == "findLower":
+                if vertices[vertex][2] <= zCutoff+0.2:
+                    state = "findLastLower"
+            if state == "findLastLower":
+                if vertices[vertex][2] > zCutoff+0.2:
+                    break
+            counter += 1
+        startIndex = counter-1
+        positionedPolyOutline = calculateOutlinePath(poly,startIndex)
+
+        if positionedPolyOutline[1][2] < zCutoff+0.4:
+            polys.remove(poly)
+            break
+
+        line = (positionedPolyOutline[0],positionedPolyOutline[1])
+        percentage = ((zCutoff+0.2)-line[0][2])/(line[1][2]-line[0][2])
+        xPosition = (line[1][0]-line[0][0])*percentage+line[0][0]
+        yPosition = (line[1][1]-line[0][1])*percentage+line[0][1]
+        zPosition = (line[1][2]-line[0][2])*percentage+line[0][2]
+        leftVertex = (xPosition,yPosition,zPosition)
+
+        lastVertex = None
+        for vertex in reversed(positionedPolyOutline):
+            if vertex[2] > zCutoff+0.2:
+                break
+            lastVertex = vertex
+        line = (lastVertex,vertex)
+        percentage = ((zCutoff+0.2)-line[0][2])/(line[1][2]-line[0][2])
+        xPosition = (line[1][0]-line[0][0])*percentage+line[0][0]
+        yPosition = (line[1][1]-line[0][1])*percentage+line[0][1]
+        zPosition = (line[1][2]-line[0][2])*percentage+line[0][2]
+        rightVertex = (xPosition,yPosition,zPosition)
+        #print("G1 X%f Y%f Z%f"%(leftVertex[0],leftVertex[1],leftVertex[2]))
+        #print("G1 X%f Y%f Z%f"%(rightVertex[0],rightVertex[1],rightVertex[2]))
+
+        newPolyOutline = [leftVertex]
+        for vertex in positionedPolyOutline:
+            if vertex[2] < zCutoff+0.4:
+                continue
+            newPolyOutline.append(vertex)
+        newPolyOutline.append(rightVertex)
+
+        vertices.append(leftVertex)
+        leftVertexIndex = len(vertices)-1
+        vertices.append(rightVertex)
+        rightVertexIndex = len(vertices)-1
+
+        newPoly = []
+        newPoly.append(leftVertexIndex)
+        steps = len(newPolyOutline)-2
+        index = startIndex+1
+        stopIndex = None
+        polyLen = len(poly)
+        while index < polyLen and steps:
+            newPoly.append(poly[index])
+            stopIndex = index
+            index += 1
+            steps -= 1
+        index = 0
+        while index < startIndex and steps:
+            newPoly.append(poly[index])
+            stopIndex = index
+            index += 1
+            steps -= 1
+        newPoly.append(rightVertexIndex)
+
+        movedVertices[poly[startIndex]] = leftVertexIndex
+        movedVertices[poly[stopIndex]] = rightVertexIndex
+
+        polys.remove(poly)
+        polys.append(newPoly)
     
+    for poly in bottomConvexPolys:
+        counter = 0
+        while counter < len(poly):
+           if poly[counter] in movedVertices:
+              poly[counter] = movedVertices[poly[counter]]
+           counter += 1
 
+        polys.append(poly)
+
+    zCutoff += 0.2
+    
 
 
 
