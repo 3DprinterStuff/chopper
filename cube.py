@@ -1,3 +1,3 @@
 import chopper
 
-chopper.generateGcode("cube.stl")
+chopper.slice("cube")
