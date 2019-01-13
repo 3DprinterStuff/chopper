@@ -2,7 +2,36 @@ from zipfile import ZipFile
 import xml.dom.minidom
 import math
 
-def extrudeLine(point1,point2,extrusionFactor=0.07):
+print("""
+
+; external perimeters extrusion width = 0.40mm
+; perimeters extrusion width = 0.67mm
+; infill extrusion width = 0.67mm
+; solid infill extrusion width = 0.67mm
+; top infill extrusion width = 0.67mm
+; support material extrusion width = 0.40mm
+
+M127
+G1 Z5 F5000 ; lift nozzle
+M104 S210 ; set extruder temp
+M140 S0 ; set bed temp
+M109 S210 ; wait for extruder temp
+G21 ; set units to millimeters
+M83 ; use relative distances for extrusion
+
+M73 P0
+G1 Z0.400 F800.000
+M103 ; extruder off
+
+
+M101 ; extruder on
+
+G1 Z1.000 F800.000
+""")
+
+
+def extrudeLine(point1,point2,extrusionFactor=0.05,extraExtrusion=1.0):
+    extrusionFactor = extrusionFactor*extraExtrusion
     distance = math.sqrt((point1[0]-point2[0])**2+(point1[1]-point2[1])**2+(point1[2]-point2[2])**2)
     print("G1 X%f Y%f Z%f E0"%(point1[0],point1[1],point1[2]))
     print("G1 X%f Y%f Z%f E%f"%(point2[0],point2[1],point2[2],distance*extrusionFactor))
@@ -205,6 +234,25 @@ def getUpperLeftVertex(poly):
     
     return startIndex
 
+def getLowerRightVertex(poly):
+    upperLeftPoly = None
+    for vertex in poly:
+        if upperLeftPoly == None:
+            upperLeftPoly = vertex
+            continue
+        if vertices[upperLeftPoly][0] < vertices[vertex][0] or (vertices[upperLeftPoly][0] == vertices[vertex][0] and vertices[upperLeftPoly][1] > vertices[vertex][1]):
+            upperLeftPoly = vertex
+    
+    counter = 0
+    startIndex = None
+    polyLen = len(poly)
+    while counter < len(poly):
+       if poly[counter] == upperLeftPoly:
+           startIndex = counter
+       counter += 1
+    
+    return startIndex
+
 def calculateOutlinePath(poly,startIndex = 0):
     outlinePath = []
     currentIndex = startIndex
@@ -219,9 +267,13 @@ def calculateOutlinePath(poly,startIndex = 0):
     
     return outlinePath
 
-def printPoly(poly,stepSize = 0.2):
+def printPoly(poly,stepSize = 0.4, axis="x"):
     print("#",poly)
-    startIndex = getUpperLeftVertex(poly)
+    if axis == "x":
+        startIndex = getUpperLeftVertex(poly)
+    elif axis == "y":
+        startIndex = getLowerRightVertex(poly)
+        
     outlinePath = calculateOutlinePath(poly,startIndex)
     print("#",outlinePath)
     print("# printing outline")
@@ -238,19 +290,23 @@ def printPoly(poly,stepSize = 0.2):
 
     print("# printing fill")
     toFill = outlinePath[:]
-    xPosition = toFill[0][0]
+    if axis == "x":
+        axisIndex = 0
+    elif axis == "y":
+        axisIndex = 1
+    position = toFill[0][axisIndex]
     upDown = True
     while len(toFill) > 2:
-        xPosition += stepSize
+        position += stepSize
 
         # remove obsolete vertexes
-        while toFill[1][0] < xPosition+(stepSize*0.5):
+        while toFill[1][axisIndex] < position+(stepSize*0.5):
             toFill.pop(0)
             if len(toFill) < 2:
                 break
         if len(toFill) < 2:
             break
-        while toFill[-2][0] < xPosition+(stepSize*0.5):
+        while toFill[-2][axisIndex] < position+(stepSize*0.5):
             toFill.pop()
             if len(toFill) < 2:
                 break
@@ -259,12 +315,12 @@ def printPoly(poly,stepSize = 0.2):
 
         # get intersections
         upperLine = (toFill[0],toFill[1])
-        percentage = (xPosition-upperLine[0][0])/(upperLine[1][0]-upperLine[0][0])
+        percentage = (position-upperLine[0][axisIndex])/(upperLine[1][axisIndex]-upperLine[0][axisIndex])
         xPositionTop = (upperLine[1][0]-upperLine[0][0])*percentage+upperLine[0][0]
         yPositionTop = (upperLine[1][1]-upperLine[0][1])*percentage+upperLine[0][1]-0.2
         zPositionTop = (upperLine[1][2]-upperLine[0][2])*percentage+upperLine[0][2]
         lowerLine = (toFill[-1],toFill[-2])
-        percentage = (xPosition-lowerLine[0][0])/(lowerLine[1][0]-lowerLine[0][0])
+        percentage = (position-lowerLine[0][axisIndex])/(lowerLine[1][axisIndex]-lowerLine[0][axisIndex])
         xPositionBottom = (lowerLine[1][0]-lowerLine[0][0])*percentage+lowerLine[0][0]
         yPositionBottom = (lowerLine[1][1]-lowerLine[0][1])*percentage+lowerLine[0][1]+0.2
         zPositionBottom = (lowerLine[1][2]-lowerLine[0][2])*percentage+lowerLine[0][2]
@@ -280,7 +336,7 @@ def printPoly(poly,stepSize = 0.2):
             upDown = True
 
 #objects = getRawData("convexPolyPolstered.amf")
-objects = getRawData("cube.amf.zip")
+objects = getRawData("cube.amf")
 
 vertices = extractVertices(objects)
 #print("vertices")
@@ -303,21 +359,24 @@ polys = reducePolys(triangles)
 #print(polys)
 
 zCutoff = 0
+zHeight = 0.2
 while polys:
     bottomConvexPolys = getBottomConvexPolys(polys,zCutoff)
     #print("bottomConvexPolys")
     #print(bottomConvexPolys)
 
     for poly in bottomConvexPolys:
-        printPoly(poly)
-        """
-        if zCutoff < 1 or zCutoff > 11:
+        if zCutoff < 0.5 or zCutoff > 11.5:
             printPoly(poly)
+        elif zCutoff%1 < 0.5:
+            printPoly(poly,stepSize=4,axis="x")
         else:
-            printPoly(poly,stepSize=1)
-        """
+            printPoly(poly,stepSize=4,axis="y")
 
         polys.remove(poly) 
+    
+    if zCutoff+zHeight > 12.0:
+        break
 
     intersectingPolys = []
     for poly in polys:
@@ -335,21 +394,21 @@ while polys:
         counter = 0
         for vertex in poly:
             if state == "findLower":
-                if vertices[vertex][2] <= zCutoff+0.2:
+                if vertices[vertex][2] <= zCutoff+zHeight:
                     state = "findLastLower"
             if state == "findLastLower":
-                if vertices[vertex][2] > zCutoff+0.2:
+                if vertices[vertex][2] > zCutoff+zHeight:
                     break
             counter += 1
         startIndex = counter-1
         positionedPolyOutline = calculateOutlinePath(poly,startIndex)
 
-        if positionedPolyOutline[1][2] < zCutoff+0.4:
+        if positionedPolyOutline[1][2] < zCutoff+zHeight*2:
             polys.remove(poly)
             break
 
         line = (positionedPolyOutline[0],positionedPolyOutline[1])
-        percentage = ((zCutoff+0.2)-line[0][2])/(line[1][2]-line[0][2])
+        percentage = ((zCutoff+zHeight)-line[0][2])/(line[1][2]-line[0][2])
         xPosition = (line[1][0]-line[0][0])*percentage+line[0][0]
         yPosition = (line[1][1]-line[0][1])*percentage+line[0][1]
         zPosition = (line[1][2]-line[0][2])*percentage+line[0][2]
@@ -357,11 +416,11 @@ while polys:
 
         lastVertex = None
         for vertex in reversed(positionedPolyOutline):
-            if vertex[2] > zCutoff+0.2:
+            if vertex[2] > zCutoff+zHeight:
                 break
             lastVertex = vertex
         line = (lastVertex,vertex)
-        percentage = ((zCutoff+0.2)-line[0][2])/(line[1][2]-line[0][2])
+        percentage = ((zCutoff+zHeight)-line[0][2])/(line[1][2]-line[0][2])
         xPosition = (line[1][0]-line[0][0])*percentage+line[0][0]
         yPosition = (line[1][1]-line[0][1])*percentage+line[0][1]
         zPosition = (line[1][2]-line[0][2])*percentage+line[0][2]
@@ -371,7 +430,7 @@ while polys:
 
         newPolyOutline = [leftVertex]
         for vertex in positionedPolyOutline:
-            if vertex[2] < zCutoff+0.4:
+            if vertex[2] < zCutoff+zHeight*2:
                 continue
             newPolyOutline.append(vertex)
         newPolyOutline.append(rightVertex)
@@ -415,10 +474,16 @@ while polys:
 
         polys.append(poly)
 
-    zCutoff += 0.2
+    zCutoff += zHeight
     
 
-
+print("""
+M103 ; extruder off
+M127
+M104 S0 ; turn off temperature
+G1 Z100  ;
+M84     ; disable motors
+""")
 
 
 
