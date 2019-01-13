@@ -2,75 +2,95 @@ from zipfile import ZipFile
 import xml.dom.minidom
 import math
 
-print("""
+'''
+classes
+'''
 
-; external perimeters extrusion width = 0.40mm
-; perimeters extrusion width = 0.67mm
-; infill extrusion width = 0.67mm
-; solid infill extrusion width = 0.67mm
-; top infill extrusion width = 0.67mm
-; support material extrusion width = 0.40mm
+class Dispatcher(object):
+    def __init__(self,extrusionFactor=0.075,filename="cube.gcode",baseTemperature=210,baseSpeed=4000.0):
+        self.extrusionFactor = extrusionFactor
+        self.outFile = open(filename,"w") 
+
+        self.commitGcode("""
 
 M127
 G1 Z5 F5000 ; lift nozzle
-M104 S210 ; set extruder temp
+M104 S%f ; set extruder temp
 M140 S0 ; set bed temp
-M109 S210 ; wait for extruder temp
+M109 S%f ; wait for extruder temp
 G21 ; set units to millimeters
 M83 ; use relative distances for extrusion
 
 M73 P0
-G1 Z0.400 F800.000
+G1 Z0.400 F%f
 M103 ; extruder off
-
 
 M101 ; extruder on
 
-G1 Z1.000 F800.000
+G1 Z1.000 F%f
+        """%(baseTemperature,baseTemperature,baseSpeed,baseSpeed))
+
+    def addLine(self,point1,point2,extraExtrusion=1.0):
+        extrusionFactor = self.extrusionFactor*extraExtrusion
+        distance = math.sqrt((point1[0]-point2[0])**2+(point1[1]-point2[1])**2+(point1[2]-point2[2])**2)
+        self.commitGcode("G1 X%f Y%f Z%f E0"%(point1[0],point1[1],point1[2]))
+        self.commitGcode("G1 X%f Y%f Z%f E%f"%(point2[0],point2[1],point2[2],distance*extrusionFactor))
+
+    def commitGcode(self,gcode):
+        self.outFile.write(gcode+"\n")
+
+    def tearDown(self):
+        self.commitGcode("""
+M103 ; extruder off
+M127
+M104 S0 ; turn off temperature
+G1 Z100  ;
+M84     ; disable motors
 """)
 
+        self.outFile.close()
 
-def extrudeLine(point1,point2,extrusionFactor=0.075,extraExtrusion=1.0):
-    extrusionFactor = extrusionFactor*extraExtrusion
-    distance = math.sqrt((point1[0]-point2[0])**2+(point1[1]-point2[1])**2+(point1[2]-point2[2])**2)
-    print("G1 X%f Y%f Z%f E0"%(point1[0],point1[1],point1[2]))
-    print("G1 X%f Y%f Z%f E%f"%(point2[0],point2[1],point2[2],distance*extrusionFactor))
-    
+class FileReader(object):
+    def __init__(self,filename="cube.amf"):
+        self.filename = filename
 
-def getRawData(filename):
-    input_zip=ZipFile(filename)
-    rawXml = input_zip.read(input_zip.namelist()[0])
+    def getRawData(self,filename):
+        input_zip=ZipFile(filename)
+        rawXml = input_zip.read(input_zip.namelist()[0])
 
-    DOMTree = xml.dom.minidom.parseString(rawXml)
-    collection = DOMTree.documentElement
-    objects = collection.getElementsByTagName("object")
+        DOMTree = xml.dom.minidom.parseString(rawXml)
+        collection = DOMTree.documentElement
+        objects = collection.getElementsByTagName("object")
 
-    return objects
+        return objects
 
-def extractVertices(objects):
-    vertices = []
-    for child in objects[0].getElementsByTagName("vertices")[0].childNodes:
-        if (child.nodeType in (child.TEXT_NODE, child.CDATA_SECTION_NODE)):
-            continue
-        x = float(child.getElementsByTagName("x")[0].childNodes[0].nodeValue)
-        y = float(child.getElementsByTagName("y")[0].childNodes[0].nodeValue)
-        z = float(child.getElementsByTagName("z")[0].childNodes[0].nodeValue)
+    def extractVertices(self,objects):
+        vertices = []
+        for child in objects[0].getElementsByTagName("vertices")[0].childNodes:
+            if (child.nodeType in (child.TEXT_NODE, child.CDATA_SECTION_NODE)):
+                continue
+            x = float(child.getElementsByTagName("x")[0].childNodes[0].nodeValue)
+            y = float(child.getElementsByTagName("y")[0].childNodes[0].nodeValue)
+            z = float(child.getElementsByTagName("z")[0].childNodes[0].nodeValue)
 
-        vertices.append((x,y,z))
-    return vertices
+            vertices.append((x,y,z))
+        return vertices
 
-def extractTriangles(objects):
-    triangles = []
-    for child in objects[0].getElementsByTagName("volume")[0].childNodes:
-        if (child.nodeType in (child.TEXT_NODE, child.CDATA_SECTION_NODE)):
-            continue
-        v1 = int(child.getElementsByTagName("v1")[0].childNodes[0].nodeValue)
-        v2 = int(child.getElementsByTagName("v2")[0].childNodes[0].nodeValue)
-        v3 = int(child.getElementsByTagName("v3")[0].childNodes[0].nodeValue)
+    def extractTriangles(self,objects):
+        triangles = []
+        for child in objects[0].getElementsByTagName("volume")[0].childNodes:
+            if (child.nodeType in (child.TEXT_NODE, child.CDATA_SECTION_NODE)):
+                continue
+            v1 = int(child.getElementsByTagName("v1")[0].childNodes[0].nodeValue)
+            v2 = int(child.getElementsByTagName("v2")[0].childNodes[0].nodeValue)
+            v3 = int(child.getElementsByTagName("v3")[0].childNodes[0].nodeValue)
 
-        triangles.append((v1,v2,v3))
-    return triangles
+            triangles.append((v1,v2,v3))
+        return triangles
 
+'''
+functions
+'''
 def buildVertexMap(triangles):
     verticesToTriangles = {}
     for triangle in triangles:
@@ -87,7 +107,7 @@ def buildVertexMap(triangles):
         verticesToTriangles[triangle[2]].append(triangle)
     return verticesToTriangles
 
-def getBottomConvexPolys(convexPolys,zCutOff=0):
+def getBottomConvexPolys(convexPolys,vertices,zCutOff=0):
     bottomConvexPolys = []
     for convexPoly in convexPolys:
         bottomVertices = []
@@ -192,9 +212,9 @@ def mergePolys(poly1,poly2):
 
     return newPoly
 
-def reducePolys(inputPolys):
+def reducePolys(inputPolys,vertices,neighbours):
     polys = []
-    inputBuckets = triangles[:]
+    inputBuckets = inputPolys[:]
     while inputBuckets:
         poly = inputBuckets.pop()
         normal = calculateNormal(expandTriangle(poly,vertices))
@@ -215,7 +235,7 @@ def reducePolys(inputPolys):
             polys.append(poly)
     return polys
 
-def getUpperLeftVertex(poly):
+def getUpperLeftVertex(poly,vertices):
     upperLeftPoly = None
     for vertex in poly:
         if upperLeftPoly == None:
@@ -234,7 +254,7 @@ def getUpperLeftVertex(poly):
     
     return startIndex
 
-def getLowerRightVertex(poly):
+def getLowerRightVertex(poly,vertices):
     upperLeftPoly = None
     for vertex in poly:
         if upperLeftPoly == None:
@@ -253,7 +273,7 @@ def getLowerRightVertex(poly):
     
     return startIndex
 
-def calculateOutlinePath(poly,startIndex = 0):
+def calculateOutlinePath(poly,vertices,startIndex = 0):
     outlinePath = []
     currentIndex = startIndex
     polyLen = len(poly)
@@ -267,20 +287,20 @@ def calculateOutlinePath(poly,startIndex = 0):
     
     return outlinePath
 
-def printPoly(poly,stepSize = 0.4, axis="x"):
+def printPoly(poly,vertices,dispatcher,stepSize = 0.4, axis="x",extraExtrusion=1.0,infillExtraExtrusion=1.0):
     print("#",poly)
     if axis == "x":
-        startIndex = getUpperLeftVertex(poly)
+        startIndex = getUpperLeftVertex(poly,vertices)
     elif axis == "y":
-        startIndex = getLowerRightVertex(poly)
+        startIndex = getLowerRightVertex(poly,vertices)
         
-    outlinePath = calculateOutlinePath(poly,startIndex)
+    outlinePath = calculateOutlinePath(poly,vertices,startIndex)
     print("#",outlinePath)
     print("# printing outline")
 
     lastPoint = outlinePath[0]
     for point in outlinePath[1:]:
-        extrudeLine(lastPoint,point)
+        dispatcher.addLine(lastPoint,point,extraExtrusion=extraExtrusion)
         lastPoint = point
     
     normal = calculateNormal((outlinePath[startIndex],outlinePath[startIndex+1],outlinePath[startIndex-1]))
@@ -288,7 +308,7 @@ def printPoly(poly,stepSize = 0.4, axis="x"):
         outlinePath = list(reversed(outlinePath))
         startIndex = len(outlinePath)-startIndex
 
-    print("# printing fill")
+    print("# printing %s fill with %d stepSize"%(axis,stepSize))
     toFill = outlinePath[:]
     if axis == "x":
         axisIndex = 0
@@ -329,55 +349,37 @@ def printPoly(poly,stepSize = 0.4, axis="x"):
            continue
 
         if upDown:
-            extrudeLine((xPositionTop,yPositionTop,zPositionTop),(xPositionBottom,yPositionBottom,zPositionBottom))
+            dispatcher.addLine((xPositionTop,yPositionTop,zPositionTop),(xPositionBottom,yPositionBottom,zPositionBottom),extraExtrusion=extraExtrusion*infillExtraExtrusion)
             upDown = False
         else:
-            extrudeLine((xPositionBottom,yPositionBottom,zPositionBottom),(xPositionTop,yPositionTop,zPositionTop))
+            dispatcher.addLine((xPositionBottom,yPositionBottom,zPositionBottom),(xPositionTop,yPositionTop,zPositionTop),extraExtrusion=extraExtrusion*infillExtraExtrusion)
             upDown = True
 
-#objects = getRawData("convexPolyPolstered.amf")
-objects = getRawData("cube.amf")
-
-vertices = extractVertices(objects)
-#print("vertices")
-#print(vertices)
-
-triangles = extractTriangles(objects)
-#print("triangles")
-#print(triangles)
-
-verticesToTriangles = buildVertexMap(triangles)
-#print("verticesToTriangles")
-#print(verticesToTriangles)
-
-neighbours = calculateNeighbours(triangles)
-#print("neighbours")
-#print(neighbours)
-
-polys = reducePolys(triangles)
-#print("polys")
-#print(polys)
-
-zCutoff = 0
-zHeight = 0.2
-while polys:
-    bottomConvexPolys = getBottomConvexPolys(polys,zCutoff)
+def sliceZLayer(polys,vertices,dispatcher,zCutoff,zHeight):
+    bottomConvexPolys = getBottomConvexPolys(polys,vertices,zCutoff)
     #print("bottomConvexPolys")
     #print(bottomConvexPolys)
 
+    firstTop = True
     for poly in bottomConvexPolys:
-        if zCutoff < 0.5 or zCutoff > 11.5:
-            printPoly(poly)
-        elif zCutoff%1 < 0.5:
-            printPoly(poly,stepSize=4,axis="x")
+        if zCutoff < 0.5 or zCutoff > 9.5:
+            if firstTop == True:
+                printPoly(poly,vertices,dispatcher,extraExtrusion=0.7)
+                firstTop = False
+            else:
+                printPoly(poly,vertices,dispatcher)
         else:
-            printPoly(poly,stepSize=4,axis="y")
+            printPoly(poly,vertices,dispatcher,stepSize=4,axis="x",extraExtrusion=0.5,infillExtraExtrusion=2.0)
+            printPoly(poly,vertices,dispatcher,stepSize=4,axis="y",extraExtrusion=0.5,infillExtraExtrusion=2.0)
+        """
+        elif zCutoff%1 > 0.5:
+            printPoly(poly,stepSize=4,axis="x",extraExtrusion=1.0)
+        else:
+            printPoly(poly,stepSize=4,axis="y",extraExtrusion=1.0)
+        """
 
         polys.remove(poly) 
     
-    if zCutoff+zHeight > 12.0:
-        break
-
     intersectingPolys = []
     for poly in polys:
         hasLower = False
@@ -401,7 +403,7 @@ while polys:
                     break
             counter += 1
         startIndex = counter-1
-        positionedPolyOutline = calculateOutlinePath(poly,startIndex)
+        positionedPolyOutline = calculateOutlinePath(poly,vertices,startIndex)
 
         if positionedPolyOutline[1][2] < zCutoff+zHeight*2:
             polys.remove(poly)
@@ -474,33 +476,46 @@ while polys:
 
         polys.append(poly)
 
-    zCutoff += zHeight
-    
+def slicePolys(polys,vertices,dispatcher): 
+    zCutoff = 0
+    zHeight = 0.2
+    while polys:
+        print("slicing layer %f"%(zCutoff))
+        sliceZLayer(polys,vertices,dispatcher,zCutoff,zHeight)
+        zCutoff += zHeight
 
-print("""
-M103 ; extruder off
-M127
-M104 S0 ; turn off temperature
-G1 Z100  ;
-M84     ; disable motors
-""")
+'''
+dirty code
+'''
+def slice(baseFilename):
+    dispatcher = Dispatcher(filename=baseFilename+".code")
+    fileReader = FileReader()
 
+    #objects = fileReader.getRawData("convexPolyPolstered.amf")
+    objects = fileReader.getRawData(baseFilename+".amf")
 
+    vertices = fileReader.extractVertices(objects)
+    #print("vertices")
+    #print(vertices)
 
+    triangles = fileReader.extractTriangles(objects)
+    #print("triangles")
+    #print(triangles)
 
+    verticesToTriangles = buildVertexMap(triangles)
+    #print("verticesToTriangles")
+    #print(verticesToTriangles)
 
+    neighbours = calculateNeighbours(triangles)
+    #print("neighbours")
+    #print(neighbours)
 
+    polys = reducePolys(triangles,vertices,neighbours)
+    #print("polys")
+    #print(polys)
+                    
+    slicePolys(polys,vertices,dispatcher)
 
+    dispatcher.tearDown()
 
-
-
-
-
-
-
-
-
-
-
-
-
+slice("cube")
