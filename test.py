@@ -30,7 +30,7 @@ G1 Z1.000 F800.000
 """)
 
 
-def extrudeLine(point1,point2,extrusionFactor=0.05,extraExtrusion=1.0):
+def extrudeLine(point1,point2,extrusionFactor=0.075,extraExtrusion=1.0):
     extrusionFactor = extrusionFactor*extraExtrusion
     distance = math.sqrt((point1[0]-point2[0])**2+(point1[1]-point2[1])**2+(point1[2]-point2[2])**2)
     print("G1 X%f Y%f Z%f E0"%(point1[0],point1[1],point1[2]))
