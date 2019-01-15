@@ -296,7 +296,7 @@ def printPoly(poly,vertices,dispatcher,stepSize = 0.4, axis="x",extraExtrusion=1
         
     outlinePath = calculateOutlinePath(poly,vertices,startIndex)
     print("#",outlinePath)
-    print("# printing outline")
+    dispatcher.commitGcode("# printing outline")
 
     lastPoint = outlinePath[0]
     for point in outlinePath[1:]:
@@ -308,7 +308,7 @@ def printPoly(poly,vertices,dispatcher,stepSize = 0.4, axis="x",extraExtrusion=1
         outlinePath = list(reversed(outlinePath))
         startIndex = len(outlinePath)-startIndex
 
-    print("# printing %s fill with %d stepSize"%(axis,stepSize))
+    dispatcher.commitGcode("# printing %s fill with %d stepSize"%(axis,stepSize))
     toFill = outlinePath[:]
     if axis == "x":
         axisIndex = 0
@@ -362,6 +362,11 @@ def sliceZLayer(polys,vertices,dispatcher,zCutoff,zHeight):
 
     firstTop = True
     for poly in bottomConvexPolys:
+        dispatcher.commitGcode("#A poly"+str(poly))
+        print("#A poly"+str(poly))
+        for vertex in poly:
+            dispatcher.commitGcode("# "+str(vertices[vertex]))
+            print("# "+str(vertices[vertex]))
         if zCutoff < 0.5 or zCutoff > 9.5:
             if firstTop == True:
                 printPoly(poly,vertices,dispatcher,extraExtrusion=0.7)
@@ -371,12 +376,6 @@ def sliceZLayer(polys,vertices,dispatcher,zCutoff,zHeight):
         else:
             printPoly(poly,vertices,dispatcher,stepSize=4,axis="x",extraExtrusion=0.5,infillExtraExtrusion=2.0)
             printPoly(poly,vertices,dispatcher,stepSize=4,axis="y",extraExtrusion=0.5,infillExtraExtrusion=2.0)
-        """
-        elif zCutoff%1 > 0.5:
-            printPoly(poly,stepSize=4,axis="x",extraExtrusion=1.0)
-        else:
-            printPoly(poly,stepSize=4,axis="y",extraExtrusion=1.0)
-        """
 
         polys.remove(poly) 
     
@@ -461,19 +460,94 @@ def sliceZLayer(polys,vertices,dispatcher,zCutoff,zHeight):
             steps -= 1
         newPoly.append(rightVertexIndex)
 
-        movedVertices[poly[startIndex]] = leftVertexIndex
-        movedVertices[poly[stopIndex]] = rightVertexIndex
+        if not poly[startIndex] in movedVertices:
+            movedVertices[poly[startIndex]] = []
+        movedVertices[poly[startIndex]].append(leftVertexIndex)
+        if not poly[stopIndex] in movedVertices:
+            movedVertices[poly[stopIndex]] = []
+        movedVertices[poly[stopIndex]].append(rightVertexIndex)
 
         polys.remove(poly)
         polys.append(newPoly)
     
+    # build mapping of poly bordering on vertices
+    vertexMap = {}
+    for poly in bottomConvexPolys:
+        for vertex in movedVertices:
+            if not vertex in poly:
+                continue
+            if not vertex in vertexMap:
+                vertexMap[vertex] = []
+            vertexMap[vertex].append((poly,poly[:]))
+    print(vertexMap)
+
     for poly in bottomConvexPolys:
         counter = 0
         while counter < len(poly):
-           if poly[counter] in movedVertices:
-              poly[counter] = movedVertices[poly[counter]]
-           counter += 1
+           origVertexId = poly[counter]
+           if not origVertexId in movedVertices:
+               counter += 1
+               continue
+           # move the vertex
+           if len(movedVertices[origVertexId]) == 1:
+               poly[counter] = movedVertices[origVertexId][0]
+           else:
+               # get leftmost poly
+               leftMostPoly = None
+               for searchPoly in vertexMap[origVertexId]:
+                   searchIndex = searchPoly[1].index(origVertexId)
+                   prevVertex = searchPoly[1][searchIndex-1]
+                   found = False
+                   for comparePoly in vertexMap[origVertexId]:
+                       if comparePoly == searchPoly:
+                           continue
+                       if not prevVertex in comparePoly[1]:
+                           continue
+                       found = True
 
+                   if not found:
+                       leftMostPoly = searchPoly[0]
+                       break
+
+               # add vertices to lefmost poly
+               startIndex = leftMostPoly.index(origVertexId)
+               leftMostPoly.remove(origVertexId)
+               for vertexId in movedVertices[origVertexId]:
+                   leftMostPoly.insert(startIndex,vertexId)
+                   if startIndex+1 == len(leftMostPoly):
+                       direction = calculateNormal([vertices[leftMostPoly[startIndex-1]],vertices[leftMostPoly[startIndex]],vertices[leftMostPoly[0]]])
+                   else:
+                       direction = calculateNormal([vertices[leftMostPoly[startIndex-1]],vertices[leftMostPoly[startIndex]],vertices[leftMostPoly[startIndex+1]]])
+                   if direction[2] > 0.01:
+                       tmp = leftMostPoly[startIndex-1]
+                       leftMostPoly[startIndex-1] = leftMostPoly[startIndex]
+                       leftMostPoly[startIndex] = tmp
+                       tmp = leftMostPoly[startIndex-2]
+                       leftMostPoly[startIndex-2] = leftMostPoly[startIndex-1]
+                       leftMostPoly[startIndex-1] = tmp
+                   startIndex += 1
+
+               # find last added vertex
+               state = "findFirst"
+               index = 0
+               for vertex in leftMostPoly:
+                   if state == "findFirst":
+                       if not vertex in movedVertices[origVertexId]:
+                           index += 1
+                       else:
+                           state = "findLast"
+                   if state == "findLast":
+                       if vertex in movedVertices[origVertexId]:
+                           index += 1
+                       else:
+                           break
+               index -= 1
+
+               # modify vertex map
+               print(leftMostPoly[index])
+               movedVertices[origVertexId] = [leftMostPoly[index]]
+               
+           counter += 1
         polys.append(poly)
 
 def slicePolys(polys,vertices,dispatcher): 
@@ -488,7 +562,7 @@ def slicePolys(polys,vertices,dispatcher):
 dirty code
 '''
 def slice(baseFilename):
-    dispatcher = Dispatcher(filename=baseFilename+".code")
+    dispatcher = Dispatcher(filename=baseFilename+".gcode")
     fileReader = FileReader()
 
     #objects = fileReader.getRawData("convexPolyPolstered.amf")
@@ -511,11 +585,12 @@ def slice(baseFilename):
     #print(neighbours)
 
     polys = reducePolys(triangles,vertices,neighbours)
+    #polys = []
+    #for poly in triangles:
+    #    polys.append(list(poly))
     #print("polys")
     #print(polys)
                     
     slicePolys(polys,vertices,dispatcher)
 
     dispatcher.tearDown()
-
-slice("cube")
