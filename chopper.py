@@ -314,6 +314,7 @@ def printPoly(poly,vertices,dispatcher,stepSize = 0.4, axis="x",extraExtrusion=1
     for point in outlinePath[1:]:
         if not (reverseMap[point],reverseMap[lastPoint]) in innerLines:
             dispatcher.addLine(lastPoint,point,extraExtrusion=extraExtrusion)
+            pass
         lastPoint = point
     
     normal = calculateNormal((outlinePath[startIndex],outlinePath[startIndex+1],outlinePath[startIndex-1]))
@@ -330,6 +331,7 @@ def printPoly(poly,vertices,dispatcher,stepSize = 0.4, axis="x",extraExtrusion=1
     position = toFill[0][axisIndex]
     dispatcher.commitGcode("# position "+str(position))
     upDown = True
+    position -= stepSize
     while len(toFill) > 2:
         dispatcher.commitGcode("# toFill "+str(toFill))
         position += stepSize
@@ -354,10 +356,12 @@ def printPoly(poly,vertices,dispatcher,stepSize = 0.4, axis="x",extraExtrusion=1
         topPosition = []
         for axis in (0,1,2):
             topPosition.append((upperLine[1][axis]-upperLine[0][axis])*percentage+upperLine[0][axis])
+        """
         if axisIndex == 0:
             topPosition[1] -= 0.2
         elif axisIndex == 1:
             topPosition[0] += 0.2
+        """
 
         lowerLine = (toFill[-1],toFill[-2])
         percentage = (position-lowerLine[0][axisIndex])/(lowerLine[1][axisIndex]-lowerLine[0][axisIndex])
@@ -382,22 +386,24 @@ def printPoly(poly,vertices,dispatcher,stepSize = 0.4, axis="x",extraExtrusion=1
                 continue
         """
 
-        if upDown:
-            dispatcher.addLine(topPosition,bottomPosition,extraExtrusion=extraExtrusion*infillExtraExtrusion)
-            upDown = False
-        else:
+        if axisIndex == 0:
             dispatcher.addLine(bottomPosition,topPosition,extraExtrusion=extraExtrusion*infillExtraExtrusion)
-            upDown = True
+            dispatcher.addLine(topPosition,bottomPosition,extraExtrusion=extraExtrusion*infillExtraExtrusion)
+        if axisIndex == 1:
+            dispatcher.addLine(topPosition,bottomPosition,extraExtrusion=extraExtrusion*infillExtraExtrusion)
+            dispatcher.addLine(bottomPosition,topPosition,extraExtrusion=extraExtrusion*infillExtraExtrusion)
+
+    if axisIndex == 1:
+        dispatcher.addLine(outlinePath[0],outlinePath[0],extraExtrusion=0)
+        pass
+    if axisIndex == 0:
+        dispatcher.addLine(outlinePath[3],outlinePath[3],extraExtrusion=0)
+        pass
 
 def sliceZLayer(polys,vertices,dispatcher,zCutoff,zHeight,axis):
-    print(polys)
     bottomConvexPolys = getBottomConvexPolys(polys,vertices,zCutoff)
-    #print("bottomConvexPolys")
-    #print(bottomConvexPolys)
 
     firstTop = True
-    print("bottomConvexPolys")
-    print(bottomConvexPolys)
     lines = []
     innerLines = []
     for poly in bottomConvexPolys:
@@ -408,24 +414,25 @@ def sliceZLayer(polys,vertices,dispatcher,zCutoff,zHeight,axis):
                 innerLines.append((lastVertex,vertex))
                 innerLines.append((vertex,lastVertex))
             lastVertex = vertex
-    print(lines)
-    print(innerLines)
+
+    maxHeight = 0
+    for vertex in vertices:
+        if maxHeight < vertex[2]:
+            maxHeight = vertex[2]
 
     for poly in bottomConvexPolys:
         dispatcher.commitGcode("#poly"+str(poly))
-        print("#poly"+str(poly))
         for vertex in poly:
             dispatcher.commitGcode("# "+str(vertices[vertex]))
-            print("# "+str(vertices[vertex]))
-        if zCutoff < 0.5 or zCutoff > 9.5:
+        if 1==0 and (zCutoff < 0.5 or zCutoff > maxHeight-0.5):
             if firstTop == True:
                 printPoly(poly,vertices,dispatcher,extraExtrusion=0.7,axis=axis)
                 firstTop = False
             else:
                 printPoly(poly,vertices,dispatcher,axis=axis)
         else:
-            printPoly(poly,vertices,dispatcher,stepSize=4,axis="x",extraExtrusion=0.5,infillExtraExtrusion=2.0,innerLines=innerLines)
-            printPoly(poly,vertices,dispatcher,stepSize=4,axis="y",extraExtrusion=0.5,infillExtraExtrusion=2.0,innerLines=innerLines)
+            printPoly(poly,vertices,dispatcher,stepSize=5,axis="x",extraExtrusion=0.5,infillExtraExtrusion=2.0,innerLines=innerLines)
+            printPoly(poly,vertices,dispatcher,stepSize=5,axis="y",extraExtrusion=0.5,infillExtraExtrusion=2.0,innerLines=innerLines)
 
         polys.remove(poly) 
     
@@ -433,14 +440,16 @@ def sliceZLayer(polys,vertices,dispatcher,zCutoff,zHeight,axis):
     for poly in polys:
         hasLower = False
         for vertex in poly:
-            if vertices[vertex][2] <= zCutoff:
+            if vertices[vertex][2] <= zCutoff+zHeight:
                 hasLower = True
             
         if hasLower:
             intersectingPolys.append(poly)
 
     movedVertices = {}
+    movedLines = {}
     for poly in intersectingPolys:
+        print("cut Poly",poly)
         state = "findLower"
         counter = 0
         for vertex in poly:
@@ -465,6 +474,14 @@ def sliceZLayer(polys,vertices,dispatcher,zCutoff,zHeight,axis):
         zPosition = (line[1][2]-line[0][2])*percentage+line[0][2]
         leftVertex = (xPosition,yPosition,zPosition)
 
+        if not line in movedLines:
+            vertices.append(leftVertex)
+            leftVertexIndex = len(vertices)-1
+            movedLines[line] = leftVertexIndex
+            movedLines[tuple(reversed(line))] = leftVertexIndex
+        else:
+            leftVertexIndex = movedLines[line]
+
         lastVertex = None
         for vertex in reversed(positionedPolyOutline):
             if vertex[2] > zCutoff+zHeight:
@@ -476,6 +493,15 @@ def sliceZLayer(polys,vertices,dispatcher,zCutoff,zHeight,axis):
         yPosition = (line[1][1]-line[0][1])*percentage+line[0][1]
         zPosition = (line[1][2]-line[0][2])*percentage+line[0][2]
         rightVertex = (xPosition,yPosition,zPosition)
+
+        if not line in movedLines:
+            vertices.append(rightVertex)
+            rightVertexIndex = len(vertices)-1
+            movedLines[line] = rightVertexIndex
+            movedLines[tuple(reversed(line))] = rightVertexIndex
+        else:
+            rightVertexIndex = movedLines[line]
+
         #print("G1 X%f Y%f Z%f"%(leftVertex[0],leftVertex[1],leftVertex[2]))
         #print("G1 X%f Y%f Z%f"%(rightVertex[0],rightVertex[1],rightVertex[2]))
 
@@ -486,11 +512,8 @@ def sliceZLayer(polys,vertices,dispatcher,zCutoff,zHeight,axis):
             newPolyOutline.append(vertex)
         newPolyOutline.append(rightVertex)
 
-        vertices.append(leftVertex)
-        leftVertexIndex = len(vertices)-1
-        vertices.append(rightVertex)
-        rightVertexIndex = len(vertices)-1
-
+        print(newPolyOutline)
+        
         newPoly = []
         newPoly.append(leftVertexIndex)
         steps = len(newPolyOutline)-2
@@ -503,7 +526,7 @@ def sliceZLayer(polys,vertices,dispatcher,zCutoff,zHeight,axis):
             index += 1
             steps -= 1
         index = 0
-        while index < startIndex and steps:
+        while index < startIndex+1 and steps:
             newPoly.append(poly[index])
             stopIndex = index
             index += 1
@@ -517,8 +540,14 @@ def sliceZLayer(polys,vertices,dispatcher,zCutoff,zHeight,axis):
             movedVertices[poly[stopIndex]] = []
         movedVertices[poly[stopIndex]].append(rightVertexIndex)
 
+        print("removing: ",poly)
+        print("adding: ",newPoly)
+
         polys.remove(poly)
         polys.append(newPoly)
+
+    print("movedVertices")
+    print(movedVertices)
     
     # build mapping of poly bordering on vertices
     vertexMap = {}
@@ -536,7 +565,6 @@ def sliceZLayer(polys,vertices,dispatcher,zCutoff,zHeight,axis):
         counter = 0
 
         while counter < len(poly):
-           print("moving",poly[counter])
            origVertexId = poly[counter]
            if not origVertexId in movedVertices:
                counter += 1
@@ -563,26 +591,9 @@ def sliceZLayer(polys,vertices,dispatcher,zCutoff,zHeight,axis):
                        break
 
                # add vertices to lefmost poly
-               """
-               startIndex = leftMostPoly.index(origVertexId)
-               leftMostPoly.remove(origVertexId)
-               for vertexId in movedVertices[origVertexId]:
-                   leftMostPoly.insert(startIndex,vertexId)
-                   # shift point to correct location
-                   shift = 1
-                   while direction[2] > 0.01:
-                       tmp = leftMostPoly[startIndex-shift]
-                       leftMostPoly[startIndex-shift] = leftMostPoly[startIndex-shift+1]
-                       leftMostPoly[startIndex-shift+1] = tmp
-                       direction = calculateNormal([vertices[leftMostPoly[startIndex-shift-1]],vertices[leftMostPoly[startIndex-shift]],vertices[leftMostPoly[startIndex-shift+1]]])
-                       shift += 1
-                   startIndex += 1
-               """
                leftMostPoly.remove(origVertexId)
                leftMostPoly.extend(movedVertices[origVertexId])
                checkIndex = -1
-               print("-----")
-               print(leftMostPoly)
                while checkIndex < len(leftMostPoly)-1:
                    direction = calculateNormal([vertices[leftMostPoly[checkIndex-1]],vertices[leftMostPoly[checkIndex]],vertices[leftMostPoly[checkIndex+1]]])
                    if direction[2] > 0.01:
@@ -592,7 +603,6 @@ def sliceZLayer(polys,vertices,dispatcher,zCutoff,zHeight,axis):
                        checkIndex = -1
                    else:
                        checkIndex += 1
-               print(leftMostPoly)
 
                # find last added vertex
                state = "findFirst"
@@ -620,9 +630,31 @@ def sliceZLayer(polys,vertices,dispatcher,zCutoff,zHeight,axis):
                    continue
                
            counter += 1
-        
-        print("readding",poly)
+
         polys.append(poly)
+        print("readding",poly)
+
+    '''
+    print("------------------------")
+    print(movedVertices)
+    for poly in bottomConvexPolys:
+        foundUpper = False
+        for vertexId in poly:
+            vertex = vertices[vertexId]
+
+            if vertex[2] > zCutoff:
+                foundUpper = True
+    
+        if foundUpper:
+            print("moving slow polys")
+            for vertexId in poly:
+                vertex = vertices[vertexId]
+
+                if vertex[2] >= zCutoff and vertex[2] < zCutoff+zHeight:
+                    vertices[vertexId] = (vertex[0],vertex[1],zCutoff+zHeight)
+                    print(vertexId)
+                    print(vertices[vertexId])
+    '''
 
 def slicePolys(polys,vertices,dispatcher): 
     zCutoff = 0
@@ -631,12 +663,14 @@ def slicePolys(polys,vertices,dispatcher):
     while polys:
         print("slicing layer %f"%(zCutoff))
         sliceZLayer(polys,vertices,dispatcher,zCutoff,zHeight,axis)
+        print(polys)
         zCutoff += zHeight
 
         if axis == "x":
             axis = "y"
         else:
             axis = "x"
+
 
 '''
 dirty code
@@ -645,7 +679,6 @@ def slice(baseFilename):
     dispatcher = Dispatcher(filename=baseFilename+".gcode")
     fileReader = FileReader()
 
-    #objects = fileReader.getRawData("convexPolyPolstered.amf")
     objects = fileReader.getRawData(baseFilename+".amf")
 
     vertices = fileReader.extractVertices(objects)
@@ -653,8 +686,16 @@ def slice(baseFilename):
     #print(vertices)
 
     triangles = fileReader.extractTriangles(objects)
-    #print("triangles")
-    #print(triangles)
+    print("triangles")
+    print(triangles)
+
+    #dispatcher.commitGcode(";triangles")
+    #for poly in triangles:
+    #    dispatcher.commitGcode("#"+str(poly))
+    #    for vertexId in list(poly)+[poly[0]]:
+    #        vertex = vertices[vertexId]
+    #        dispatcher.commitGcode("G1 X%f Y%f Z%f"%(vertex[0],vertex[1],vertex[2]))
+                    
 
     verticesToTriangles = buildVertexMap(triangles)
     #print("verticesToTriangles")
@@ -668,8 +709,15 @@ def slice(baseFilename):
     #polys = []
     #for poly in triangles:
     #    polys.append(list(poly))
-    #print("polys")
-    #print(polys)
+    print("polys")
+    print(polys)
+
+    #dispatcher.commitGcode(";polys")
+    #for poly in polys:
+    #    dispatcher.commitGcode("#"+str(poly))
+    #    for vertexId in list(poly)+[poly[0]]:
+    #        vertex = vertices[vertexId]
+    #        dispatcher.commitGcode("G1 X%f Y%f Z%f"%(vertex[0],vertex[1],vertex[2]))
                     
     slicePolys(polys,vertices,dispatcher)
 
